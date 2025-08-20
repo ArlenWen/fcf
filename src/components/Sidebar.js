@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  FileText, 
-  ChevronDown, 
-  ChevronRight, 
+import {
+  FileText,
+  ChevronDown,
+  ChevronRight,
   RefreshCw,
   Menu,
-  X
+  X,
+  Eye
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -16,6 +17,12 @@ const Sidebar = ({ selectedFeature, onFeatureSelect, isOpen, onToggle }) => {
   const navigate = useNavigate();
 
   const menuItems = [
+    {
+      id: 'file-preview',
+      title: '文件预览',
+      icon: Eye,
+      path: '/file-preview'
+    },
     {
       id: 'file-converter',
       title: '文件转换',

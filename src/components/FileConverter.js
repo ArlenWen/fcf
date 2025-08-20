@@ -11,7 +11,7 @@ import FileUpload from './FileUpload';
 import ConversionTabs from './ConversionTabs';
 import LoadingSpinner from './LoadingSpinner';
 import Notification from './Notification';
-import { convertFile } from '../utils/fileConverter';
+import { convertFile, convertPdfToImages } from '../utils/fileConverter';
 import './FileConverter.css';
 
 const FileConverter = () => {
@@ -100,13 +100,35 @@ const FileConverter = () => {
       for (let i = 0; i < uploadedFiles.length; i++) {
         const file = uploadedFiles[i];
         try {
-          const convertedFile = await convertFile(file, targetFormat);
-          converted.push({
-            originalFile: file,
-            convertedFile,
-            targetFormat,
-            success: true
-          });
+          const sourceExtension = file.name.split('.').pop().toLowerCase();
+          const isPdfToImage = sourceExtension === 'pdf' && ['png', 'jpg', 'jpeg'].includes(targetFormat);
+
+          if (isPdfToImage) {
+            // PDF转图片：处理多个输出文件
+            const convertedFiles = await convertPdfToImages(file, targetFormat);
+            const filesArray = Array.isArray(convertedFiles) ? convertedFiles : [convertedFiles];
+
+            // 为每个生成的图片文件创建一个条目
+            filesArray.forEach((convertedFile, pageIndex) => {
+              converted.push({
+                originalFile: file,
+                convertedFile,
+                targetFormat,
+                success: true,
+                pageNumber: filesArray.length > 1 ? pageIndex + 1 : null,
+                totalPages: filesArray.length > 1 ? filesArray.length : null
+              });
+            });
+          } else {
+            // 其他转换：单个输出文件
+            const convertedFile = await convertFile(file, targetFormat);
+            converted.push({
+              originalFile: file,
+              convertedFile,
+              targetFormat,
+              success: true
+            });
+          }
 
           setConversionProgress(Math.round(((i + 1) / totalFiles) * 100));
         } catch (error) {
@@ -167,6 +189,15 @@ const FileConverter = () => {
     URL.revokeObjectURL(url);
   };
 
+  const downloadAllFiles = () => {
+    const successfulFiles = convertedFiles.filter(item => item.success);
+    successfulFiles.forEach((item, index) => {
+      setTimeout(() => {
+        downloadFile(item.convertedFile);
+      }, index * 100); // 延迟下载避免浏览器阻止
+    });
+  };
+
   const currentTab = tabs.find(tab => tab.id === activeTab);
 
   return (
@@ -197,7 +228,7 @@ const FileConverter = () => {
           <p>{currentTab?.description}</p>
         </div>
 
-        <FileUpload 
+        <FileUpload
           onFilesUploaded={handleFilesUploaded}
           acceptedTypes={getAcceptedTypes(activeTab)}
         />
@@ -213,7 +244,18 @@ const FileConverter = () => {
 
         {convertedFiles.length > 0 && (
           <div className="converted-files">
-            <h3>转换完成</h3>
+            <div className="converted-files-header">
+              <h3>转换完成</h3>
+              {convertedFiles.filter(item => item.success).length > 1 && (
+                <button
+                  className="download-all-btn"
+                  onClick={downloadAllFiles}
+                >
+                  <Download size={16} />
+                  下载全部 ({convertedFiles.filter(item => item.success).length} 个文件)
+                </button>
+              )}
+            </div>
             <div className="file-list">
               {convertedFiles.map((item, index) => (
                 <div key={index} className="converted-file-item">
@@ -222,7 +264,12 @@ const FileConverter = () => {
                       <div className="file-info">
                         <FileText size={24} />
                         <div>
-                          <div className="file-name">{item.convertedFile.name}</div>
+                          <div className="file-name">
+                            {item.convertedFile.name}
+                            {item.pageNumber && (
+                              <span className="page-info"> (第 {item.pageNumber}/{item.totalPages} 页)</span>
+                            )}
+                          </div>
                           <div className="file-size">
                             {(item.convertedFile.size / 1024 / 1024).toFixed(2)} MB
                           </div>

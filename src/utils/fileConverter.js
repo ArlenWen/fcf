@@ -1,46 +1,61 @@
 // import { PDFDocument, rgb } from 'pdf-lib'; // 保留以备将来使用
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfConfig'; // 使用统一的PDF.js配置
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-// 设置PDF.js worker - 使用本地文件避免CORS问题
-pdfjsLib.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.js`;
-
-// PDF相关转换
+// PDF相关转换 - 为每一页生成单独的图片文件
 export const convertPdfToImage = async (file, format = 'png') => {
   try {
     console.log('Converting PDF to image:', file.name);
 
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const totalPages = pdf.numPages;
 
-    // 获取第一页进行转换
-    const page = await pdf.getPage(1);
+    console.log(`PDF has ${totalPages} pages, converting each page to separate image...`);
+
+    const convertedFiles = [];
     const scale = 2.0; // 提高分辨率
-    const viewport = page.getViewport({ scale });
 
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
+    // 为每一页生成单独的图片
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
 
-    const renderContext = {
-      canvasContext: context,
-      viewport: viewport
-    };
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
 
-    await page.render(renderContext).promise;
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport
+      };
 
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        const convertedFile = new File([blob], `${file.name.split('.')[0]}.${format}`, {
-          type: format === 'png' ? 'image/png' : 'image/jpeg'
-        });
-        resolve(convertedFile);
-      }, format === 'png' ? 'image/png' : 'image/jpeg', 0.95);
-    });
+      await page.render(renderContext).promise;
+
+      // 创建每页的图片文件
+      const pageImageFile = await new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          const fileName = totalPages === 1
+            ? `${file.name.split('.')[0]}.${format}`
+            : `${file.name.split('.')[0]}_page_${pageNum}.${format}`;
+
+          const convertedFile = new File([blob], fileName, {
+            type: format === 'png' ? 'image/png' : 'image/jpeg'
+          });
+          resolve(convertedFile);
+        }, format === 'png' ? 'image/png' : 'image/jpeg', 0.95);
+      });
+
+      convertedFiles.push(pageImageFile);
+      console.log(`Converted page ${pageNum}/${totalPages}: ${pageImageFile.name}`);
+    }
+
+    // 如果只有一页，返回单个文件；多页返回文件数组
+    return totalPages === 1 ? convertedFiles[0] : convertedFiles;
   } catch (error) {
     console.error('PDF to image conversion failed:', error);
     throw new Error(`PDF转换失败: ${error.message}`);
@@ -509,6 +524,11 @@ export const convertImageToPdf = async (file) => {
   }
 };
 
+// PDF转图片的专用函数，返回所有页面的图片文件
+export const convertPdfToImages = async (file, targetFormat = 'png') => {
+  return await convertPdfToImage(file, targetFormat);
+};
+
 // 通用转换函数
 export const convertFile = async (file, targetFormat) => {
   const sourceExtension = file.name.split('.').pop().toLowerCase();
@@ -519,7 +539,10 @@ export const convertFile = async (file, targetFormat) => {
       case 'pdf->png':
       case 'pdf->jpg':
       case 'pdf->jpeg':
-        return await convertPdfToImage(file, targetFormat);
+        const pdfImages = await convertPdfToImage(file, targetFormat);
+        // 如果是多个文件，返回第一个文件（保持向后兼容）
+        // 实际应用中可能需要修改UI来处理多个文件
+        return Array.isArray(pdfImages) ? pdfImages[0] : pdfImages;
 
       case 'pdf->txt':
         return await convertPdfToText(file);
